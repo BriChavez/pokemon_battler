@@ -4,8 +4,15 @@ from flask_wtf import FlaskForm
 from wtforms import StringField, SubmitField
 from wtforms.validators import DataRequired
 import pandas as pd
-
 from google.cloud import bigquery
+import logging
+from logging import INFO
+import sys
+
+logging.basicConfig(format='[%(levelname)-5s][%(asctime)s][%(module)s:%(lineno)04d] : %(message)s',
+                    level=INFO,
+                    stream=sys.stderr)
+logger: logging.Logger = logging
 
 # def df_import(csv_file):
 #     poke_df = pd.read_csv(csv_file, index_col="english_name")
@@ -180,11 +187,13 @@ def updater(data_in, pokemon1, pokemon2, str_message):
     """
     if pokemon1.name in str_message:
         data_in.at[pokemon2.id, "wins"] += 1
-        data_in.at[pokemon1.id, "times_chosen"] += 1
         data_in.at[pokemon2.id, "times_chosen"] += 1
+        data_in.at[pokemon1.id, "losses"] += 1
+        data_in.at[pokemon1.id, "times_chosen"] += 1
     elif pokemon2.name in str_message:
         data_in.at[pokemon1.id, "wins"] += 1
         data_in.at[pokemon1.id, "times_chosen"] += 1
+        data_in.at[pokemon2.id, "losses"] += 1
         data_in.at[pokemon2.id, "times_chosen"] += 1
     else:
         pass
@@ -196,7 +205,7 @@ def bq_pull(poke_1, poke_2):
     bqclient = bigquery.Client()
     query_string = f"""
     SELECT *
-        FROM deb-01-346001.pokemon.poke_battler_data
+        FROM deb-01-346205.poke_battler_data.pokemon
         WHERE name LIKE '{poke_1}' OR name LIKE '{poke_2}'
     """
     dataframe = (
@@ -226,11 +235,12 @@ def update_tablebq(main_table, temp_table):
     BigQuery function that merges the temp table onto the main table
     """
     bqclient = bigquery.Client()
+    logger.info(main_table)
     update = f"""
         UPDATE {main_table} as i
-        SET wins = i.wins + n.wins,
-        losses = i.losses + n.losses,
-        times_chosen = i.times_chosen + n.times_chosen
+        SET wins = n.wins,
+        losses = n.losses,
+        times_chosen = n.times_chosen
         FROM {temp_table} as n
         WHERE i.name = n.name
 """
@@ -288,11 +298,11 @@ def poke_fight():
             #update our dataframe with win/loss/chosen info
             updater(poke_df, pokemon1, pokemon2, message)
             #insert into temp table
-            insert(poke_df, 'deb-01-346001.pokemon.temp_table')
+            insert(poke_df, 'deb-01-346205.poke_battler_data.temp_table')
             #merge temp table with main
-            update_tablebq("deb-01-346001.pokemon.poke_battler_data", "deb-01-346001.pokemon.temp_table")
+            update_tablebq("deb-01-346205.poke_battler_data.pokemon", "deb-01-346205.poke_battler_data.temp_table")
             #drop temp table
-            drop_tablebq('deb-01-346001.pokemon.temp_table')
+            drop_tablebq('deb-01-346205.poke_battler_data.temp_table')
         #checks that valid pokemon were entered
         elif pokemon1.id in poke_df.index and pokemon2.id not in poke_df.index:
             message = f"{poke_2} is not a valid pokemon!"
